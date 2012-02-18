@@ -35,27 +35,37 @@ getBlockHashes fp =
                              eof <- hFileSize hdl
                              mapM (getBlock hdl) [0..(numBlocks eof - 1)] )
 
--- | Pretend the client has @c@ and the server has @s@
+--------- testing code
+
+-- | Pretend the client has @c@ and the server has @s@ prints a line
+-- per block indicating whether the block is the same, different or
+-- new.
 test :: FilePath -> FilePath -> IO ()
 test c s = do
   putStrLn $ "Comparing client file " ++ c ++ " and server file " ++ s
-  bhc <- getBlockHashes c
-  bhs <- getBlockHashes s
-  let diffList = zip3 ([0..]::[Integer]) bhc bhs
-  mapM_ sendBlock diffList
-    where
-      sendBlock (i,ha,hb) = do
-        putStrLn $ "offset " ++ show i ++ (if (ha == hb) then " same" else " diff")
-
+  dl <- diffVector c s
+  mapM_ (\(i,jd) -> case jd of
+           Just True -> putStrLn $ "offset " ++ show i ++ " same"
+           Just False -> putStrLn $ "offset " ++ show i ++ " differs"
+           Nothing -> putStrLn $ "offset " ++ show i ++ " new")
+    (zip [1..] dl)
+  
 -- | Return a list of two files @fa@ and @fb@ showing which offset
--- differ. @True@ indicates the blocks are the same at this offset,
--- @False@ means they differ.
-diffVector :: FilePath -> FilePath -> IO [Bool]
+-- differ. @Just True@ indicates the blocks are the same at this offset,
+-- @Just False@ means they differ. @Nothing@ indicates that only one of
+-- the files has a block for this offset.
+diffVector :: FilePath -> FilePath -> IO [Maybe Bool]
 diffVector fa fb = do
-  bha <- getBlockHashes fa
-  bhb <- getBlockHashes fb
-  return $ map (\(ha,hb) -> if (ha == hb) then True else False) $ zip bha bhb
-
+  bhas <- getBlockHashes fa
+  bhbs <- getBlockHashes fb
+  return $ build [] bhas bhbs
+    where build accum as bs = case (null as, null bs) of
+            (True, True) -> reverse accum
+            (False, True) -> build (Nothing:accum) (tail as) bs
+            (True, False) -> build (Nothing:accum) as (tail bs)
+            (False, False) -> build ((if (head as == (head bs)) 
+                                      then Just True 
+                                      else Just False):accum) (tail as) (tail bs)
 
 -- | take two times @numidx@ permutations of @chunks@ and create them as files, where
 -- each letter corresponds to a unique binary block. Then verify that the diff vectors
