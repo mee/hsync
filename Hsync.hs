@@ -4,13 +4,18 @@ import Codec.Utils -- Octet, fromOctets, toOctets
 import Data.Digest.MD5 -- hash :: [Octet] -> [Octet]
 import System.FilePath.Posix -- FilePath
 import qualified Data.ByteString.Lazy.Char8 as BL
-import Data.Bits.Utils (c2w8)
+import Data.Bits.Utils (c2w8,w82c)
 import System.IO
 import Control.Monad
 import System.Cmd -- for test setup
 import Data.List -- permutations
+import Control.Applicative -- liftM
 
-main = undefined
+main = let c = "test/abc"
+           s = "test/abc2" in do
+         dv <- minDiffVector s c
+         idl <- dv2idl s dv
+         patch c idl
 
 bs :: Integer
 bs = 1024*4 -- 4 kB
@@ -27,6 +32,12 @@ getBlock hdl o = let off = (\e -> minimum [(o*bs), e])       -- begining of bloc
   hSetPosn pos
   return $! map c2w8 . BL.unpack $ bs
 
+writeBlock :: Handle -> Integer -> [Octet] -> IO ()
+writeBlock hdl off blk = do
+  pos <- hGetPosn hdl
+  hSeek hdl AbsoluteSeek off
+  BL.hPut hdl ( BL.pack $ map w82c blk )
+
 -- | return a list of hashes for each block in a file @fp@
 getBlockHashes :: FilePath -> IO [[Octet]]
 getBlockHashes fp = 
@@ -35,21 +46,32 @@ getBlockHashes fp =
                              eof <- hFileSize hdl
                              mapM (getBlock hdl) [0..(numBlocks eof - 1)] )
 
---------- testing code
+-- | update file @fa@ by overwriting the blocks at the specified
+-- offsets with the ones given.
+patch :: FilePath -> (Integer,[(Integer,[Octet])]) -> IO ()
+patch fa idl = let (sz,dl) = idl in withFile fa WriteMode
+         (\hdl -> do eof <- hFileSize hdl
+                     when (eof /= sz) (hSetFileSize hdl (maximum [eof, sz]))
+                     mapM_ (\(i,d) -> writeBlock hdl i d) dl)
 
--- | Pretend the client has @c@ and the server has @s@ prints a line
--- per block indicating whether the block is the same, different or
--- new.
-test :: FilePath -> FilePath -> IO ()
-test c s = do
-  putStrLn $ "Comparing client file " ++ c ++ " and server file " ++ s
-  dl <- diffVector c s
-  mapM_ (\(i,jd) -> case jd of
-           Just True -> putStrLn $ "offset " ++ show i ++ " same"
-           Just False -> putStrLn $ "offset " ++ show i ++ " differs"
-           Nothing -> putStrLn $ "offset " ++ show i ++ " new")
-    (zip [1..] dl)
-  
+-- | like DiffVector, but the list is only as long as the @fa@. This
+-- is handy for computing which blocks you need to send from @fa@ to
+-- patch @fb@.
+--  
+minDiffVector :: FilePath -> FilePath -> IO [Maybe Bool]
+minDiffVector fa fb = do
+  bhas <- getBlockHashes fa
+  bhbs <- getBlockHashes fb
+  return $ build [] bhas bhbs
+    where build accum as bs = case (null as, null bs) of
+            (True, True) -> reverse accum
+            (False, True) -> build (Nothing:accum) (tail as) bs
+            (True, False) -> reverse accum
+            (False, False) -> build ((if (head as == (head bs)) 
+                                      then Just True 
+                                      else Just False):accum) (tail as) (tail bs)
+                              
+
 -- | Return a list of two files @fa@ and @fb@ showing which offset
 -- differ. @Just True@ indicates the blocks are the same at this offset,
 -- @Just False@ means they differ. @Nothing@ indicates that only one of
@@ -67,6 +89,31 @@ diffVector fa fb = do
                                       then Just True 
                                       else Just False):accum) (tail as) (tail bs)
 
+--------- testing code
+
+-- | Pretend the client has @c@ and the server has @s@ prints a line
+-- per block indicating whether the block is the same, different or
+-- new.
+test :: FilePath -> FilePath -> IO ()
+test c s = do
+  putStrLn $ "Comparing client file " ++ c ++ " and server file " ++ s
+  dl <- diffVector c s
+  mapM_ (\(i,jd) -> case jd of
+           Just True -> putStrLn $ "offset " ++ show i ++ " same"
+           Just False -> putStrLn $ "offset " ++ show i ++ " differs"
+           Nothing -> putStrLn $ "offset " ++ show i ++ " new")
+    (zip [1..] dl)
+    
+dv2idl :: FilePath -> [Maybe Bool] -> IO (Integer,[(Integer,[Octet])])
+dv2idl fp dv = let idv = filter (\(i,d) -> case d of
+                                 Just True -> False
+                                 otherwise -> True) $ zip [1..] dv in
+  withFile fp ReadMode 
+    (\hdl -> do eof <- hFileSize hdl
+                lst <- mapM (\(i,d) -> liftM ((,) i) (getBlock hdl i)) idv
+                return (eof,lst) )
+                    
+
 -- | take two times @numidx@ permutations of @chunks@ and create them as files, where
 -- each letter corresponds to a unique binary block. Then verify that the diff vectors
 -- of the files corresponds to the file names
@@ -81,3 +128,4 @@ makeTestFiles = do
           permutes = zip [1..] (permutations chunks) 
           cmds = map (\(i,c) -> "cat " ++ intersperse ' ' c ++ " > " ++ c) $
                  filter (\(i,c) -> if i `elem` indices then True else False) permutes
+
