@@ -12,4 +12,7 @@ cat a b b > abb
 cat b b b > bbb
 cat b b c > bbc
 
+cp abc abc2
+echo "c" >> abc2
+
 cd ..

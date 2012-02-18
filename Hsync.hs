@@ -11,10 +11,10 @@ import System.Cmd -- for test setup
 import Data.List -- permutations
 import Control.Applicative -- liftM
 
-main = let c = "test/abc"
-           s = "test/abc2" in do
-         dv <- minDiffVector s c
-         idl <- dv2idl s dv
+main = let c = "test/abc2"
+           s = "test/abc" in do
+         dv <- minDiffVector s c -- find where c is different from s (length dv == (length s) / bs)
+         idl <- dv2idl s dv -- get the blocks we need from s to patch c
          patch c idl
 
 bs :: Integer
@@ -32,10 +32,11 @@ getBlock hdl o = let off = (\e -> minimum [(o*bs), e])       -- begining of bloc
   hSetPosn pos
   return $! map c2w8 . BL.unpack $ bs
 
+-- | write given block at given offset
 writeBlock :: Handle -> Integer -> [Octet] -> IO ()
 writeBlock hdl off blk = do
   pos <- hGetPosn hdl
-  hSeek hdl AbsoluteSeek off
+  hSeek hdl AbsoluteSeek (bs*off)
   BL.hPut hdl ( BL.pack $ map w82c blk )
 
 -- | return a list of hashes for each block in a file @fp@
@@ -49,15 +50,15 @@ getBlockHashes fp =
 -- | update file @fa@ by overwriting the blocks at the specified
 -- offsets with the ones given.
 patch :: FilePath -> (Integer,[(Integer,[Octet])]) -> IO ()
-patch fa idl = let (sz,dl) = idl in withFile fa WriteMode
+patch fa idl = let (sz,dl) = idl in withFile fa ReadWriteMode
          (\hdl -> do eof <- hFileSize hdl
-                     when (eof /= sz) (hSetFileSize hdl (maximum [eof, sz]))
+                     putStrLn $ "eof: " ++ show eof ++ " sz: " ++ show sz
+                     when (eof /= sz) (hSetFileSize hdl sz)
                      mapM_ (\(i,d) -> writeBlock hdl i d) dl)
 
 -- | like DiffVector, but the list is only as long as the @fa@. This
 -- is handy for computing which blocks you need to send from @fa@ to
 -- patch @fb@.
---  
 minDiffVector :: FilePath -> FilePath -> IO [Maybe Bool]
 minDiffVector fa fb = do
   bhas <- getBlockHashes fa
@@ -89,6 +90,16 @@ diffVector fa fb = do
                                       then Just True 
                                       else Just False):accum) (tail as) (tail bs)
 
+dv2idl :: FilePath -> [Maybe Bool] -> IO (Integer,[(Integer,[Octet])])
+dv2idl fp dv = let idv = filter (\(i,d) -> case d of
+                                 Just True -> False
+                                 otherwise -> True) $ zip [1..] dv in
+  withFile fp ReadMode 
+    (\hdl -> do eof <- hFileSize hdl
+                lst <- mapM (\(i,d) -> liftM ((,) i) (getBlock hdl i)) idv
+                return (eof,lst) )
+
+
 --------- testing code
 
 -- | Pretend the client has @c@ and the server has @s@ prints a line
@@ -104,14 +115,6 @@ test c s = do
            Nothing -> putStrLn $ "offset " ++ show i ++ " new")
     (zip [1..] dl)
     
-dv2idl :: FilePath -> [Maybe Bool] -> IO (Integer,[(Integer,[Octet])])
-dv2idl fp dv = let idv = filter (\(i,d) -> case d of
-                                 Just True -> False
-                                 otherwise -> True) $ zip [1..] dv in
-  withFile fp ReadMode 
-    (\hdl -> do eof <- hFileSize hdl
-                lst <- mapM (\(i,d) -> liftM ((,) i) (getBlock hdl i)) idv
-                return (eof,lst) )
                     
 
 -- | take two times @numidx@ permutations of @chunks@ and create them as files, where
