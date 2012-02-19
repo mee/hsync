@@ -1,3 +1,4 @@
+
 module Hsync where
 
 import Codec.Utils -- Octet, fromOctets, toOctets
@@ -34,7 +35,7 @@ getBlock hdl o = let off = (\e -> minimum [(o*bs), e])       -- begining of bloc
   hSetPosn pos
   return $! map c2w8 . BL.unpack $ bs
 
--- | write given block at given offset
+-- | write given block at given offset in-place
 writeBlock :: Handle -> Integer -> [Octet] -> IO ()
 writeBlock hdl off blk = do
   pos <- hGetPosn hdl
@@ -57,6 +58,7 @@ patch fa idl = let (sz,dl) = idl in withFile fa ReadWriteMode
          (\hdl -> do eof <- hFileSize hdl
                      when (eof /= sz) (hSetFileSize hdl sz)
                      mapM_ (\(i,d) -> writeBlock hdl i d) dl)
+
 
 -- | like DiffVector, but the list is only as long as the @fa@. This
 -- is handy for computing which blocks you need to send from @fa@ to
@@ -114,21 +116,21 @@ lcsSlow = build []
         
 lcs :: (Ord a) => [a] -> [a] -> [a]        
 lcs as bs = let arr = lcsDir as bs        
-                (_,(mx,my)) = bounds arr in step [] arr as (mx-1,my-1)
-  where step l arr as idx = let (x,y) = idx
-                                d = snd (arr!(x,y)) 
-                                v = as!!(x-1) in
-          if (or [ x == 0, y == 0 ])
+                (_,(mr,mc)) = bounds arr in step [] arr as (mr-1,mc-1)
+  where step l arr as idx = let (r,c) = idx
+                                (DC (_,d)) = (arr!(r,c)) 
+                                v = as!!(r-1) in
+          if (or [ r == 0, c == 0 ])
             then l
             else step (if d == NW then (v:l) else l)
                  arr as (case d of
-                         N -> (x-1,y)
-                         NW -> (x-1,y-1)
-                         W -> (x,y-1))
+                         N -> (r-1,c)
+                         NW -> (r-1,c-1)
+                         W -> (r,c-1))
 
 lcsLen as bs = let arr = lcsDir as bs
                    (_,(mx,my)) = bounds arr
-                   (v,_) = arr!(mx-1,my-1) in v
+                   (DC (v,_)) = arr!(mx-1,my-1) in v
 
 -- | pretty-print our direction array
 ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Dir) -> IO ()
@@ -142,34 +144,35 @@ ppDirArr as bs arr = let idx = (\x y -> (x,y))
                   putStrLn "" ) [0..(lx-1)]
     where pad n s = let l = length s in if l >= n then s else s ++ (concat $ replicate (n-l) " ")
 
-data Dir = W | NW | N | X deriving (Ord, Eq)  -- formerly 3 2 1 0          
+data Dir = W | NW | N | X deriving (Ord, Eq)
 instance Show Dir where
   show W = "←"
   show NW = "↖"
   show N = "↑"
   show X = " "
   
-newtype DCell = DCell (Int,Dir) 
+-- newtype DCell = DCell (Int,Dir) 
+data DCell = DC !(Int,Dir)
 
 instance Show DCell where  
-  show (DCell (x,d)) = show d ++ show x
+  show (DC (x,d)) = show d ++ show x
 
-lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) (Int,Dir) -- (length,dir)
+lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) DCell -- (length,dir)
 lcsDir as bs = build as bs
    where build as bs = let la = length as
                            lb = length bs in runSTArray $ do
-                         d <- newArray ((0,0),(la+1,lb+1)) (0,X)
+                         d <- newArray ((0,0),(la+1,lb+1)) (DC (0,X))
                          mapM_ (\ia -> mapM_ (\ib -> point d as ia la bs ib lb) [1..lb]) [1..la]
                          return d
-         point d as ia la bs ib lb = do (e, _) <- readArray d (ia, ib)
-                                        (le,_) <- readArray d (ia-1, ib)
-                                        (ue,_) <- readArray d (ia, ib-1)
+         point d as ia la bs ib lb = do (DC (e, _)) <- readArray d (ia, ib)
+                                        (DC (le,_)) <- readArray d (ia-1, ib)
+                                        (DC (ue,_)) <- readArray d (ia, ib-1)
                                         if as!!(ia-1) == bs!!(ib-1) -- as, bs are zero-origin
-                                         then do (de,_) <- readArray d (ia-1, ib-1)
-                                                 writeArray d (ia, ib) (de+1,NW)
+                                         then do (DC (de,_)) <- readArray d (ia-1, ib-1)
+                                                 {-# SCC "NW" #-} writeArray d (ia, ib) (DC (de+1,NW))
                                          else if le >= ue
-                                              then do writeArray d (ia, ib) (le,N)
-                                              else do writeArray d (ia, ib) (ue,W)
+                                              then do {-# SCC "N" #-} writeArray d (ia, ib) (DC (le,N))
+                                              else do {-# SCC "W" #-} writeArray d (ia, ib) (DC (ue,W))
 
 biggest = foldr (\a b -> if length a > length b then a else b) []                            
 
