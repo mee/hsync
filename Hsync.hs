@@ -108,31 +108,15 @@ dv2idl fp dv = let idv = filter (\(i,d) -> case d of
                 return (eof,lst) )
 
 -- | Find the longest common subsequence of two lists.
-lcs :: (Ord a, Eq a) => [a] -> [a] -> [a]
-lcs = build []
+lcsSlow :: (Ord a, Eq a) => [a] -> [a] -> [a]
+lcsSlow = build []
   where build l (a:as) (b:bs) | a == b = build (a:l) as bs
                               | otherwise = biggest [ build l (a:as) bs
                                                     , build l as (b:bs) ]
         build l [] _ = reverse l
         build l _ [] = reverse l
-
--- can memoize on (length of as, length of as) -> True to determine if 
--- we've seen this sequence before. If so, we can abort
-
-lcs_memo :: (Ord a, Eq a) => [a] -> [a] -> [[a]]
-lcs_memo = build [] []
-  where build l s as bs = let mk = (length as, length bs) in do
-          guard $ not $ mk `elem` s
-          a <- as
-          b <- bs
-          if (or [ null as, null bs ]) 
-            then return $ reverse l
-            else if a == b
-                 then build (a:l) (mk:s) (tail as) (tail bs)
-                 else biggest [ build l (mk:s) (tail as) bs
-                              , build l (mk:s) as (tail bs) ]
         
-lcs12 as bs = let arr = lcsDir as bs        
+lcs as bs = let arr = lcsDir as bs        
                   (_,(mx,my)) = bounds arr in
               step [] arr as (mx-1,my-1)
   where step l a as (x,y) = let d = snd (a!(x,y)) in 
