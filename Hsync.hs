@@ -11,11 +11,8 @@ import System.Cmd -- for test setup
 import Data.List -- permutations
 import Control.Applicative -- liftM
 
-main = let c = "test/abc2"
-           s = "test/abc" in do
-         dv <- minDiffVector s c -- find where c is different from s (length dv == (length s) / bs)
-         idl <- dv2idl s dv -- get the blocks we need from s to patch c
-         patch c idl
+main :: IO ()
+main = do test "test/edfhcibgja" "test/bijchefdga"
 
 bs :: Integer
 bs = 1024*4 -- 4 kB
@@ -47,12 +44,12 @@ getBlockHashes fp =
                              eof <- hFileSize hdl
                              mapM (getBlock hdl) [0..(numBlocks eof - 1)] )
 
--- | update file @fa@ by overwriting the blocks at the specified
--- offsets with the ones given.
+-- | update file @fa@ by truncating it to the given size and
+-- overwriting the blocks at the specified offsets with the ones
+-- given.
 patch :: FilePath -> (Integer,[(Integer,[Octet])]) -> IO ()
 patch fa idl = let (sz,dl) = idl in withFile fa ReadWriteMode
          (\hdl -> do eof <- hFileSize hdl
-                     putStrLn $ "eof: " ++ show eof ++ " sz: " ++ show sz
                      when (eof /= sz) (hSetFileSize hdl sz)
                      mapM_ (\(i,d) -> writeBlock hdl i d) dl)
 
@@ -93,7 +90,7 @@ diffVector fa fb = do
 dv2idl :: FilePath -> [Maybe Bool] -> IO (Integer,[(Integer,[Octet])])
 dv2idl fp dv = let idv = filter (\(i,d) -> case d of
                                  Just True -> False
-                                 otherwise -> True) $ zip [1..] dv in
+                                 otherwise -> True) $ zip [0..] dv in
   withFile fp ReadMode 
     (\hdl -> do eof <- hFileSize hdl
                 lst <- mapM (\(i,d) -> liftM ((,) i) (getBlock hdl i)) idv
@@ -105,8 +102,8 @@ dv2idl fp dv = let idv = filter (\(i,d) -> case d of
 -- | Pretend the client has @c@ and the server has @s@ prints a line
 -- per block indicating whether the block is the same, different or
 -- new.
-test :: FilePath -> FilePath -> IO ()
-test c s = do
+testEcho :: FilePath -> FilePath -> IO ()
+testEcho c s = do
   putStrLn $ "Comparing client file " ++ c ++ " and server file " ++ s
   dl <- diffVector c s
   mapM_ (\(i,jd) -> case jd of
@@ -114,8 +111,6 @@ test c s = do
            Just False -> putStrLn $ "offset " ++ show i ++ " differs"
            Nothing -> putStrLn $ "offset " ++ show i ++ " new")
     (zip [1..] dl)
-    
-                    
 
 -- | take two times @numidx@ permutations of @chunks@ and create them as files, where
 -- each letter corresponds to a unique binary block. Then verify that the diff vectors
@@ -132,3 +127,9 @@ makeTestFiles = do
           cmds = map (\(i,c) -> "cat " ++ intersperse ' ' c ++ " > " ++ c) $
                  filter (\(i,c) -> if i `elem` indices then True else False) permutes
 
+test :: FilePath -> FilePath -> IO ()
+test s c = do dv <- minDiffVector s c -- find where c is different from s (length dv == (length s) / bs)
+              putStrLn $ "dv: " ++ show dv
+              idl@(sz,dl) <- dv2idl s dv -- get the blocks we need from s to patch c
+              putStrLn $ "indices: " ++ show (map fst dl)
+              patch c idl
