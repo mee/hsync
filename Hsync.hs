@@ -132,6 +132,22 @@ lcs_memo = build [] []
                  else biggest [ build l (mk:s) (tail as) bs
                               , build l (mk:s) as (tail bs) ]
         
+lcs12 as bs = let arr = lcsDir as bs        
+                  (_,(mx,my)) = bounds arr in
+              step [] arr as (mx-1,my-1)
+  where step l a as (x,y) = let d = snd (a!(x,y)) in 
+          if (or [ x == 0, y == 0 ])
+            then l
+            else step ((as!!(x-1)):l) a as (case snd (a!(x,y)) of
+                                           1 -> (x,y-1)
+                                           2 -> (x-1,y-1)
+                                           3 -> (x-1,y)
+                                           _ -> error (show (x,y)))
+
+lcsLen as bs = let arr = lcsDir as bs
+                   (_,(mx,my)) = bounds arr
+                   (v,_) = arr!(mx-1,my-1) in v
+
 -- | pretty-print our direction array
 ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Int) -> IO ()
 ppDirArr as bs arr = let idx = (\x y -> (x,y))
@@ -143,8 +159,7 @@ ppDirArr as bs arr = let idx = (\x y -> (x,y))
                                     (l,0) -> putStr $ " " ++ pad colw (show l)
                                     (l,1) -> putStr $ "↑" ++ pad colw (show l)
                                     (l,2) -> putStr $ "↖" ++ pad colw (show l)
-                                    (l,3) -> putStr $ "←" ++ pad colw (show l)
-                                    (l,4) -> putStr $ "x" ++ pad colw (show l)) [0..(ly-1)]
+                                    (l,3) -> putStr $ "←" ++ pad colw (show l)) [0..(ly-1)]
                   putStrLn "" ) [0..(lx-1)]
     where pad n s = let l = length s in if l >= n then s else s ++ (concat $ replicate (n-l) " ")
 
@@ -165,9 +180,7 @@ lcsDir as bs = build as bs
                                                  writeArray d (ia, ib) (de+1,2)
                                          else if le >= ue
                                               then do writeArray d (ia, ib) (le,1)
-                                              else if e == le
-                                                   then do writeArray d (ia, ib) (ue,3)
-                                                   else do writeArray d (ia, ib) (0,4)
+                                              else do writeArray d (ia, ib) (ue,3)
 
 biggest = foldr (\a b -> if length a > length b then a else b) []                            
 
