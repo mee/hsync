@@ -11,6 +11,15 @@ import System.Cmd -- for test setup
 import Data.List -- permutations
 import Control.Applicative -- liftM
 
+-- for lcs_clrs
+import Control.Monad.ST
+import Data.Array.ST
+import GHC.Arr
+import Control.Monad
+
+data Patch = Change (Integer,[Octet])
+           | Remove (Integer)
+
 main :: IO ()
 main = do test "test/edfhcibgja" "test/bijchefdga"
 
@@ -98,8 +107,69 @@ dv2idl fp dv = let idv = filter (\(i,d) -> case d of
                 lst <- mapM (\(i,d) -> liftM ((,) i) (getBlock hdl i)) idv
                 return (eof,lst) )
 
+-- | Find the longest common subsequence of two lists.
+lcs :: (Ord a, Eq a) => [a] -> [a] -> [a]
+lcs = build []
+  where build l (a:as) (b:bs) | a == b = build (a:l) as bs
+                              | otherwise = biggest [ build l (a:as) bs
+                                                    , build l as (b:bs) ]
+        build l [] _ = reverse l
+        build l _ [] = reverse l
 
---------- testing code
+-- can memoize on (length of as, length of as) -> True to determine if 
+-- we've seen this sequence before. If so, we can abort
+
+lcs_memo :: (Ord a, Eq a) => [a] -> [a] -> [[a]]
+lcs_memo = build [] []
+  where build l s as bs = let mk = (length as, length bs) in do
+          guard $ not $ mk `elem` s
+          a <- as
+          b <- bs
+          if (or [ null as, null bs ]) 
+            then return $ reverse l
+            else if a == b
+                 then build (a:l) (mk:s) (tail as) (tail bs)
+                 else biggest [ build l (mk:s) (tail as) bs
+                              , build l (mk:s) as (tail bs) ]
+        
+-- | pretty-print our direction array
+ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Int) -> IO ()
+ppDirArr as bs arr = let idx = (\x y -> (x,y))
+                         (_,(lx,ly)) = bounds arr 
+                         colw = 1 + length (show (as!!1)) in do
+  putStrLn $ pad colw " " ++ (concat $ map (pad (1+colw)) ("b":(map show bs)))
+  mapM_ (\x -> do putStr (if x == 0 then (pad (colw-1) "a") else show (as!!(x-1)))
+                  mapM_ (\y -> do case arr!(x, y) of
+                                    (l,0) -> putStr $ " " ++ pad colw (show l)
+                                    (l,1) -> putStr $ "↑" ++ pad colw (show l)
+                                    (l,2) -> putStr $ "↖" ++ pad colw (show l)
+                                    (l,3) -> putStr $ "←" ++ pad colw (show l)
+                                    (l,4) -> putStr $ "x" ++ pad colw (show l)) [0..(ly-1)]
+                  putStrLn "" ) [0..(lx-1)]
+    where pad n s = let l = length s in if l >= n then s else s ++ (concat $ replicate (n-l) " ")
+
+-- data Dir = W | NW | N | X -- deriving (MArray Int Dir m)
+--            3   2    1   0          
+lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) (Int,Int) -- (length,dir)
+lcsDir as bs = build as bs
+   where build as bs = let la = length as
+                           lb = length bs in runSTArray $ do
+                         d <- newArray ((0,0),(la+1,lb+1)) (0,0)
+                         mapM_ (\ia -> mapM_ (\ib -> point d as ia la bs ib lb) [1..lb]) [1..la]
+                         return d
+         point d as ia la bs ib lb = do (e, _) <- readArray d (ia, ib)
+                                        (le,_) <- readArray d (ia-1, ib)
+                                        (ue,_) <- readArray d (ia, ib-1)
+                                        if as!!(ia-1) == bs!!(ib-1) -- as, bs are zero-origin
+                                         then do (de,_) <- readArray d (ia-1, ib-1)
+                                                 writeArray d (ia, ib) (de+1,2)
+                                         else if le >= ue
+                                              then do writeArray d (ia, ib) (le,1)
+                                              else if e == le
+                                                   then do writeArray d (ia, ib) (ue,3)
+                                                   else do writeArray d (ia, ib) (0,4)
+
+biggest = foldr (\a b -> if length a > length b then a else b) []                            
 
 -- | Pretend the client has @c@ and the server has @s@ prints a line
 -- per block indicating whether the block is the same, different or
