@@ -87,6 +87,8 @@ diffVector fa fb = do
                                       then Just True 
                                       else Just False):accum) (tail as) (tail bs)
 
+-- | Given a difference vector @dv and the server file @fp@, return
+-- the indexed difference list
 dv2idl :: FilePath -> [Maybe Bool] -> IO (Integer,[(Integer,[Octet])])
 dv2idl fp dv = let idv = filter (\(i,d) -> case d of
                                  Just True -> False
