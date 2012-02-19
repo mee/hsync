@@ -11,7 +11,6 @@ import System.Cmd -- for test setup
 import Data.List -- permutations
 import Control.Applicative -- liftM
 
--- for lcs_clrs
 import Control.Monad.ST
 import Data.Array.ST
 import GHC.Arr
@@ -19,9 +18,6 @@ import Control.Monad
 
 data Patch = Change (Integer,[Octet])
            | Remove (Integer)
-
-main :: IO ()
-main = do test "test/edfhcibgja" "test/bijchefdga"
 
 bs :: Integer
 bs = 1024*4 -- 4 kB
@@ -116,44 +112,53 @@ lcsSlow = build []
         build l [] _ = reverse l
         build l _ [] = reverse l
         
+lcs :: (Ord a) => [a] -> [a] -> [a]        
 lcs as bs = let arr = lcsDir as bs        
-                  (_,(mx,my)) = bounds arr in
-              step [] arr as (mx-1,my-1)
-  where step l a as (x,y) = let d = snd (a!(x,y)) in 
+                (_,(mx,my)) = bounds arr in step [] arr as (mx-1,my-1)
+  where step l arr as idx = let (x,y) = idx
+                                d = snd (arr!(x,y)) 
+                                v = as!!(x-1) in
           if (or [ x == 0, y == 0 ])
             then l
-            else step ((as!!(x-1)):l) a as (case snd (a!(x,y)) of
-                                           1 -> (x,y-1)
-                                           2 -> (x-1,y-1)
-                                           3 -> (x-1,y)
-                                           _ -> error (show (x,y)))
+            else step (if d == NW then (v:l) else l)
+                 arr as (case d of
+                         N -> (x-1,y)
+                         NW -> (x-1,y-1)
+                         W -> (x,y-1))
 
 lcsLen as bs = let arr = lcsDir as bs
                    (_,(mx,my)) = bounds arr
                    (v,_) = arr!(mx-1,my-1) in v
 
 -- | pretty-print our direction array
-ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Int) -> IO ()
+ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Dir) -> IO ()
 ppDirArr as bs arr = let idx = (\x y -> (x,y))
                          (_,(lx,ly)) = bounds arr 
-                         colw = 1 + length (show (as!!1)) in do
-  putStrLn $ pad colw " " ++ (concat $ map (pad (1+colw)) ("b":(map show bs)))
-  mapM_ (\x -> do putStr (if x == 0 then (pad (colw-1) "a") else show (as!!(x-1)))
-                  mapM_ (\y -> do case arr!(x, y) of
-                                    (l,0) -> putStr $ " " ++ pad colw (show l)
-                                    (l,1) -> putStr $ "↑" ++ pad colw (show l)
-                                    (l,2) -> putStr $ "↖" ++ pad colw (show l)
-                                    (l,3) -> putStr $ "←" ++ pad colw (show l)) [0..(ly-1)]
+                         colw = 3 + length (show (as!!1)) 
+                         cellstr = (\x y -> let (v,d) = arr!(x,y) in show d ++ show v) in do
+  putStrLn $ pad (colw+1) " " ++ (concat $ map (pad (colw)) ("b":(map show bs)))
+  mapM_ (\x -> do putStr (if x == 0 then (pad (colw) "a") else pad colw $ show (as!!(x-1)))
+                  mapM_ (\y -> putStr $ pad colw $ cellstr x y ) [0..(ly-1)]
                   putStrLn "" ) [0..(lx-1)]
     where pad n s = let l = length s in if l >= n then s else s ++ (concat $ replicate (n-l) " ")
 
--- data Dir = W | NW | N | X -- deriving (MArray Int Dir m)
---            3   2    1   0          
-lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) (Int,Int) -- (length,dir)
+data Dir = W | NW | N | X deriving (Ord, Eq)  -- formerly 3 2 1 0          
+instance Show Dir where
+  show W = "←"
+  show NW = "↖"
+  show N = "↑"
+  show X = " "
+  
+newtype DCell = DCell (Int,Dir) 
+
+instance Show DCell where  
+  show (DCell (x,d)) = show d ++ show x
+
+lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) (Int,Dir) -- (length,dir)
 lcsDir as bs = build as bs
    where build as bs = let la = length as
                            lb = length bs in runSTArray $ do
-                         d <- newArray ((0,0),(la+1,lb+1)) (0,0)
+                         d <- newArray ((0,0),(la+1,lb+1)) (0,X)
                          mapM_ (\ia -> mapM_ (\ib -> point d as ia la bs ib lb) [1..lb]) [1..la]
                          return d
          point d as ia la bs ib lb = do (e, _) <- readArray d (ia, ib)
@@ -161,10 +166,10 @@ lcsDir as bs = build as bs
                                         (ue,_) <- readArray d (ia, ib-1)
                                         if as!!(ia-1) == bs!!(ib-1) -- as, bs are zero-origin
                                          then do (de,_) <- readArray d (ia-1, ib-1)
-                                                 writeArray d (ia, ib) (de+1,2)
+                                                 writeArray d (ia, ib) (de+1,NW)
                                          else if le >= ue
-                                              then do writeArray d (ia, ib) (le,1)
-                                              else do writeArray d (ia, ib) (ue,3)
+                                              then do writeArray d (ia, ib) (le,N)
+                                              else do writeArray d (ia, ib) (ue,W)
 
 biggest = foldr (\a b -> if length a > length b then a else b) []                            
 

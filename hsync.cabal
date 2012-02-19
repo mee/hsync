@@ -45,10 +45,10 @@ Cabal-version:       >=1.2
 
 Executable hsync
   -- .hs or .lhs file containing the Main module.
-  Main-is:             Hsync.hs
+  Main-is:             Main.hs
   
   -- Packages needed in order to build this package.
-  Build-depends:       Crypto, MissingH
+  Build-depends:       Crypto, MissingH, base, array, process, bytestring, filepath
   
   -- Modules not exported by this package.
   -- Other-modules:       
