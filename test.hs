@@ -1,33 +1,38 @@
 module Main where
 
--- import Data.Vector
+import qualified Data.Vector as V
 
-main = let as = [1,3..999]
-           bs = [1..1000] in pp (1 + length bs) $ lcsDir as bs
-                             
--- generate :: Int -> (Int -> a) -> Vector a
-       
-data Dir = W | D | N | X deriving (Ord, Eq, Show)
+main = let as = [1,3..9]
+           bs = [1..10]
+           le = V.last $ lcsDir as bs in do putStrLn $ "as: " ++ show as
+                                            putStrLn $ "bs: " ++ show bs
+                                            putStrLn $ "length: " ++ show (fst le)
 
-lcsDir :: (Eq a) => [a] -> [a] -> [(Int,Dir)]
+-- This hits an infinite loop with unboxed vectors because the
+-- concatenation doesn't seem to happen until after the second part is
+-- built, so r=1,c=1 fails when it tries to access the first element
+-- of the list.
+lcsDir :: (Eq a) => [a] -> [a] -> V.Vector (Int,Char)
 lcsDir as bs = let la = length as
                    lb = length bs
-                   idx r c = (1+lb)*r + c 
-                   zs = replicate (lb+1) (0,X) ++ (concat $ map (\r -> map (\c -> if c == 0 then (0,X) else 
-                                             let le = fst (zs!!(idx (r-1) c))
-                                                 ue = fst (zs!!(idx r (c-1)))
-                                                 de = fst (zs!!(idx (r-1) (c-1))) in
-                                                    if as!!(r-1) == bs!!(c-1)
-                                                      then (de+1, D)
-                                                      else if le >= ue
-                                                             then (le, N)
-                                                             else (ue, W) ) [0..lb] ) [1..la]) in take ((la+1)*(lb+1)) zs
+                   idx r c = (lb+1)*r + c
+                   zs = (V.++) (V.replicate (lb+1) (0,'-')) 
+                               (V.generate (la*(lb+1)) 
+                                (\i -> let (r',c) = i `quotRem` (lb+1) in
+                                  if c == 0 then (0,'X') else
+                                    let r = r' + 1 in
+                                    if as!!(r-1) == bs!!(c-1)
+                                    then let de = fst ((V.!) zs (idx (r-1) (c-1))) in (de+1, 'D')
+                                    else let le = fst ((V.!) zs (idx (r-1) c))
+                                             ue = fst ((V.!) zs (idx r (c-1))) in
+                                         if le >= ue
+                                         then (le, 'N')
+                                         else (ue, 'W') ) ) in zs
 
-pp :: (Show a, Show b) => Int -> [(a,b)] -> IO ()
-pp rl zs = mapM_ (putStrLn . pshow) $ brk zs
-           where brk l | length l <= rl = [l]
-                       | otherwise = (take rl l) : ( brk (drop rl l) )
-                 pad k s = if length s >= k then s else s ++ (replicate (k - (length s)) ' ')
-                 pshow :: (Show a, Show b) => [(a,b)] -> String
-                 pshow vs = concat $ map (\(v,d) -> (show d ++ pad 3 (show v) ++ " ")) vs
+pp :: Int -> [(Int,Char)] -> IO ()
+pp rl zs = mapM_ (putStrLn . rshow) $ brk zs
+  where brk l | length l <= rl = [l]
+              | otherwise = take rl l : brk (drop rl l)
+        pad k s = let ls = length s in if ls >= k then s else s ++ replicate (k - ls) ' '
+        rshow = concatMap (\(v,d) -> (d:[] ++ pad 3 (show v) ++ " "))
 
