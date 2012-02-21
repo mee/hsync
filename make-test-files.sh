@@ -3,9 +3,9 @@
 mkdir test
 cd test
 
-dd if=/dev/urandom bs=4K count=1 of=a
-dd if=/dev/urandom bs=4K count=1 of=b
-dd if=/dev/urandom bs=4K count=1 of=c
+dd if=/dev/urandom bs=$1 count=1 of=a
+dd if=/dev/urandom bs=$1 count=1 of=b
+dd if=/dev/urandom bs=$1 count=1 of=c
 
 cat a b c > abc
 cat a b b > abb

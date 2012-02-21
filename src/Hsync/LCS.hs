@@ -1,15 +1,8 @@
-module Main where
+module Hsync.LCS (lcs) where
 
 import qualified Data.Vector as V
 import Data.List -- nub, sort
-import Test.QuickCheck
-
-main = let as = [1,2,3]
-           bs = [1,2,4] 
-           cs = lcs as bs in do putStrLn $ "as: " ++ show as
-                                putStrLn $ "bs: " ++ show bs
-                                putStrLn $ "lcs: " ++ show cs
-                                pp 4 $ V.toList (lcsDir as bs)
+-- import Test.QuickCheck
 
 -- This hits an infinite loop with unboxed vectors because the
 -- concatenation doesn't seem to happen until after the second part is
