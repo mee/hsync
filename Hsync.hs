@@ -1,4 +1,4 @@
-
+{-# LANGUAGE FlexibleContexts #-}
 module Hsync where
 
 import Codec.Utils -- Octet, fromOctets, toOctets
@@ -14,7 +14,7 @@ import Control.Applicative -- liftM
 
 import Control.Monad.ST
 import Data.Array.ST
-import GHC.Arr
+import Data.Array.Unboxed
 import Control.Monad
 
 data Patch = Change (Integer,[Octet])
@@ -116,28 +116,32 @@ lcsSlow = build []
         
 lcs :: (Ord a) => [a] -> [a] -> [a]        
 lcs as bs = let arr = lcsDir as bs        
-                (_,(mr,mc)) = bounds arr in step [] arr as (mr-1,mc-1)
-  where step l arr as idx = let (r,c) = idx
-                                (DC (_,d)) = (arr!(r,c)) 
-                                v = as!!(r-1) in
+                deidx i = (length bs) `quotRem` i 
+                (mr,mc) = deidx $ snd $ bounds arr in step [] arr as (mr,mc)
+  where step l arr as i = let (r,c) = i
+                              idx r c = r*(length bs) + c                              
+                              (_,d) = deval $ arr!(idx r c)
+                              v = as!!(r-1) in
           if (or [ r == 0, c == 0 ])
             then l
-            else step (if d == NW then (v:l) else l)
+            else step (if d == 2 then (v:l) else l)
                  arr as (case d of
-                         N -> (r-1,c)
-                         NW -> (r-1,c-1)
-                         W -> (r,c-1))
+                         1 -> (r-1,c)
+                         2 -> (r-1,c-1)
+                         3 -> (r,c-1))
 
 lcsLen as bs = let arr = lcsDir as bs
-                   (_,(mx,my)) = bounds arr
-                   (DC (v,_)) = arr!(mx-1,my-1) in v
+                   deidx i = (length bs) `quotRem` i
+                   mi = snd $ bounds arr
+                   (v,_) = deval $ arr!(mi-1) in v
 
 -- | pretty-print our direction array
-ppDirArr :: (Show a) => [a] -> [a] ->  Array (Int,Int) (Int, Dir) -> IO ()
-ppDirArr as bs arr = let idx = (\x y -> (x,y))
-                         (_,(lx,ly)) = bounds arr 
+ppDirArr :: (Show a) => [a] -> [a] ->  UArray Int Int -> IO ()
+ppDirArr as bs arr = let idx r c = (length bs)*r + c
+                         deidx i = (length bs) `quotRem` i
+                         (lx,ly) = deidx $ snd $ bounds arr 
                          colw = 3 + length (show (as!!1)) 
-                         cellstr = (\x y -> let (v,d) = arr!(x,y) in show d ++ show v) in do
+                         cellstr = (\x y -> let (v,d) = deval $ arr!(idx x y) in show d ++ show v) in do
   putStrLn $ pad (colw+1) " " ++ (concat $ map (pad (colw)) ("b":(map show bs)))
   mapM_ (\x -> do putStr (if x == 0 then (pad (colw) "a") else pad colw $ show (as!!(x-1)))
                   mapM_ (\y -> putStr $ pad colw $ cellstr x y ) [0..(ly-1)]
@@ -146,10 +150,10 @@ ppDirArr as bs arr = let idx = (\x y -> (x,y))
 
 data Dir = W | NW | N | X deriving (Ord, Eq)
 instance Show Dir where
-  show W = "←"
-  show NW = "↖"
-  show N = "↑"
-  show X = " "
+  show W = "←"   -- 3
+  show NW = "↖"  -- 2  
+  show N = "↑"   -- 1
+  show X = " "   -- 0
   
 -- newtype DCell = DCell (Int,Dir) 
 data DCell = DC !(Int,Dir)
@@ -157,22 +161,46 @@ data DCell = DC !(Int,Dir)
 instance Show DCell where  
   show (DC (x,d)) = show d ++ show x
 
-lcsDir :: (Ord a) => [a] -> [a] -> Array (Int,Int) DCell -- (length,dir)
+-- helpers
+val a b = a*4 + b
+deval x = x `quotRem` 4 -- (value, direction)
+  
+lcsDir :: (Ord a) => [a] -> [a] -> UArray Int Int
 lcsDir as bs = build as bs
    where build as bs = let la = length as
-                           lb = length bs in runSTArray $ do
-                         d <- newArray ((0,0),(la+1,lb+1)) (DC (0,X))
+                           lb = length bs 
+                           idx r c = lb*c + r in runSTUArray $ do
+                         d <- newArray (0,(idx (la+1) (lb+1))) 0 -- value*4 + direction
                          mapM_ (\ia -> mapM_ (\ib -> point d as ia la bs ib lb) [1..lb]) [1..la]
                          return d
-         point d as ia la bs ib lb = do (DC (e, _)) <- readArray d (ia, ib)
-                                        (DC (le,_)) <- readArray d (ia-1, ib)
-                                        (DC (ue,_)) <- readArray d (ia, ib-1)
-                                        if as!!(ia-1) == bs!!(ib-1) -- as, bs are zero-origin
-                                         then do (DC (de,_)) <- readArray d (ia-1, ib-1)
-                                                 {-# SCC "NW" #-} writeArray d (ia, ib) (DC (de+1,NW))
-                                         else if le >= ue
-                                              then do {-# SCC "N" #-} writeArray d (ia, ib) (DC (le,N))
-                                              else do {-# SCC "W" #-} writeArray d (ia, ib) (DC (ue,W))
+         point d as ia la bs ib lb = let idx r c = r*lb + c in do 
+                                        ef <- readArray d (idx ia ib)          -- element at point
+                                        lef <- readArray d (idx (ia-1) ib)     -- left element
+                                        uef <- readArray d (idx ia (ib-1))     -- upper element
+                                        def <- readArray d (idx (ia-1) (ib-1)) -- diag (nw) element
+                                        let (e,_) = deval ef
+                                            (le,_) = deval lef
+                                            (de,_) = deval def
+                                            (ue,_) = deval uef in
+                                          if as!!(ia-1) == bs!!(ib-1) -- as, bs are zero-origin
+                                           then do writeArray d (idx ia ib) (val (de+1) 2)
+                                           else if le >= ue
+                                                then do writeArray d (idx ia ib) (val le 1)
+                                                else do writeArray d (idx ia ib) (val ue 3)
+
+lcsDir2 as bs = let la = length a
+                    lb = length b
+                    idx r c = lb*r + c
+                    zs = map (\r -> (map (\c ->   
+                                  let le = zs!!(idx (r-1) c)
+                                      ue = zs!!(idx r (c-1))
+                                      de = zs!!(idx (r-1) (c-1) in
+                                  if as!!(idx r c) == bs!!(idx r c)
+                                    then (zs!!(idx (r-1) (c-1)), NW)
+                                    else if le > = ue
+                                         then (zs!!(idx (r-1) c), N)
+                                         else (zs!!(idx c (r-1)), W) ) [1..lb])) [1..la] in zs
+
 
 biggest = foldr (\a b -> if length a > length b then a else b) []                            
 
