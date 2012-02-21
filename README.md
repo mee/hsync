@@ -1,11 +1,13 @@
-# HSync
+# HSync (Work in Progess)
 
-An patch algorithm for delta-based update that's better than pulling
-the whole file every time, but still pretty dumb. Inspired by zsync.
+The goal here is to build a file server over http that clients can
+pull patches from to stay in sync with the servers' files.
+
+Inspired by zsync.
 
 To use, run `make-test-files.sh` and then load `Hsync.hs` into ghci.
 
-You can then patch one file to another with,
+You can then fake-o patch one file to another with,
 
 ```haskell
 patch "test/abc" "test/abc2"
