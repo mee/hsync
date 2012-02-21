@@ -48,7 +48,7 @@ Executable hsync
   Main-is:             Main.hs
   
   -- Packages needed in order to build this package.
-  Build-depends:       Crypto, MissingH, base, array, process, bytestring, filepath
+  Build-depends:       Crypto, MissingH, base, vector, process, bytestring, filepath
   
   -- Modules not exported by this package.
   -- Other-modules:       

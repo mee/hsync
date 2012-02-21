@@ -1,6 +1,7 @@
 module Main where
 
 import Hsync
+import Hsync.LCS
 
 main :: IO ()
 main = do let as = [1,3..999]
