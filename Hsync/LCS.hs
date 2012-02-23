@@ -60,8 +60,8 @@ prop_lcs_mult as bs = let ss = lcs as bs
   where freqs ls = let ue = nub ls in sort $ map (\e -> (e, length $ filter (==e) ls)) ue
         freqCmp fs@((se,sc):sec) fa@((ae,ac):aec) | se == ae = and [ sc <= ac , freqCmp sec aec ]
                                                   | se /= ae = freqCmp fs aec
-        freqCmp ((se,sc):[]) ((ae,ac):_) | se == ae = True
-                                         | se /= ae = False
+        freqCmp fs@((se,sc):[]) ((ae,ac):aec) | se == ae = sc <= ac
+                                              | se /= ae = freqCmp fs aec
         freqCmp [] as = True   -- there were no common elements
         freqCmp fs [] = False  -- this actually fails prop_lcs_elem
 
@@ -70,10 +70,10 @@ prop_lcs_mult as bs = let ss = lcs as bs
 -- quickCheck (prop_lcs_elem :: (Num a) => [a] -> [a] -> Bool)
 -- quickCheck (prop_lcs_order :: (Num a) => [a] -> [a] -> Bool)
 -- quickCheck (prop_lcs_mult :: (Num a) => [a] -> [a] -> Bool)
--- quickCheck (prop_lcs_len :: [Int] -> [Int] -> Bool)
--- quickCheck (prop_lcs_elem :: [Int] -> [Int] -> Bool)
--- quickCheck (prop_lcs_order :: [Int] -> [Int] -> Bool)
--- quickCheck (prop_lcs_mult :: [Int] -> [Int] -> Bool)
+-- quickCheck (prop_lcs_len :: [Char] -> [Char] -> Bool)
+-- quickCheck (prop_lcs_elem :: [Char] -> [Char] -> Bool)
+-- quickCheck (prop_lcs_order :: [Char] -> [Char] -> Bool)
+-- quickCheck (prop_lcs_mult :: [Char] -> [Char] -> Bool)
 
 -- ex usage: let as = [1,3..9]; bs = [1..10] in pp (1+length as) $ V.toList $ lcsDir as bs
 pp :: Int -> [(Int,Char)] -> IO ()
